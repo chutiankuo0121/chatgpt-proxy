@@ -7,9 +7,10 @@ from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
 import urllib.error
+import os
 
-# 简单的 API Key 验证（防止滥用）
-API_KEY = "your-secret-key-here"  # 部署时在 Vercel 环境变量设置
+# 从环境变量读取 API Key
+API_KEY = os.environ.get('API_KEY', '')
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
