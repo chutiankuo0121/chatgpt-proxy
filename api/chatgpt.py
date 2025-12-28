@@ -42,6 +42,9 @@ class handler(BaseHTTPRequestHandler):
             elif path == '/api/chatgpt/kick':
                 # 踢出成员
                 result = self._kick_member(body.get('access_token', ''), body.get('account_id', ''), body.get('user_id', ''))
+            elif path == '/api/chatgpt/cancel-invite':
+                # 取消邀请
+                result = self._cancel_invite(body.get('access_token', ''), body.get('account_id', ''), body.get('email', ''))
             elif path == '/api/chatgpt/sync':
                 # 一次性获取所有信息（token + subscription + members）
                 result = self._sync_all(body.get('session_token', ''), body.get('account_id', ''))
@@ -179,6 +182,17 @@ class handler(BaseHTTPRequestHandler):
             return {'success': True, 'items': result['data'].get('items', []), 'total': result['data'].get('total', 0)}
         
         return {'success': False, 'error': result.get('error'), 'status': result.get('status')}
+
+    def _cancel_invite(self, access_token, account_id, email):
+        """取消待处理邀请"""
+        if not access_token or not account_id or not email:
+            return {'success': False, 'error': 'Missing params'}
+
+        url = f'https://chatgpt.com/backend-api/accounts/{account_id}/invites'
+        data = {'email_address': email}
+        result = self._fetch(url, self._build_headers(access_token, account_id), 'DELETE', data)
+
+        return {'success': result.get('status') == 200, 'status': result.get('status'), 'error': result.get('error')}
 
     def _sync_all(self, session_token, account_id):
         """一次性获取所有信息：token + subscription + members"""
