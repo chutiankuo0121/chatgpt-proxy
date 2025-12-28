@@ -167,6 +167,19 @@ class handler(BaseHTTPRequestHandler):
 
         return {'success': result.get('status') == 200, 'status': result.get('status')}
 
+    def _get_invites(self, access_token, account_id):
+        """获取待处理邀请列表"""
+        if not access_token or not account_id:
+            return {'success': False, 'error': 'Missing params'}
+
+        url = f'https://chatgpt.com/backend-api/accounts/{account_id}/invites?offset=0&limit=100'
+        result = self._fetch(url, self._build_headers(access_token, account_id))
+
+        if result.get('status') == 200:
+            return {'success': True, 'items': result['data'].get('items', []), 'total': result['data'].get('total', 0)}
+        
+        return {'success': False, 'error': result.get('error'), 'status': result.get('status')}
+
     def _sync_all(self, session_token, account_id):
         """一次性获取所有信息：token + subscription + members"""
         if not session_token or not account_id:
@@ -180,7 +193,7 @@ class handler(BaseHTTPRequestHandler):
         access_token = token_result['accessToken']
         headers = self._build_headers(access_token, account_id)
 
-        # 2. 并行获取 subscription 和 members（Python 单线程，但可以用 concurrent）
+        # 2. 并行获取 subscription、members 和 invites
         import concurrent.futures
         
         def fetch_subscription():
@@ -191,12 +204,18 @@ class handler(BaseHTTPRequestHandler):
             url = f'https://chatgpt.com/backend-api/accounts/{account_id}/users?offset=0&limit=100&query='
             return self._fetch(url, headers)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        def fetch_invites():
+            url = f'https://chatgpt.com/backend-api/accounts/{account_id}/invites?offset=0&limit=100'
+            return self._fetch(url, headers)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             sub_future = executor.submit(fetch_subscription)
             mem_future = executor.submit(fetch_members)
+            inv_future = executor.submit(fetch_invites)
             
             sub_result = sub_future.result()
             mem_result = mem_future.result()
+            inv_result = inv_future.result()
 
         # 3. 处理结果
         response = {'success': True}
@@ -220,5 +239,11 @@ class handler(BaseHTTPRequestHandler):
             response['members'] = mem_result['data'].get('items', [])
         else:
             response['members'] = []
+
+        # 待处理邀请
+        if inv_result.get('status') == 200:
+            response['invites'] = inv_result['data'].get('items', [])
+        else:
+            response['invites'] = []
 
         return response
