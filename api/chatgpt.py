@@ -71,6 +71,46 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.end_headers()
 
+    def _parse_openai_error(self, error_str):
+        """解析 OpenAI 错误并映射成友好消息"""
+        # 错误码映射表
+        error_map = {
+            'token_invalidated': ('token_expired', 'Token已过期，请更新Session Token'),
+            'invalid_api_key': ('token_expired', 'Token无效，请更新Session Token'),
+            'account_deactivated': ('banned', '账号已被封禁'),
+            'account_suspended': ('banned', '账号已被暂停'),
+            'subscription_expired': ('expired', '订阅已过期'),
+            'rate_limit_exceeded': ('rate_limit', '请求过于频繁，请稍后重试'),
+            'server_error': ('server_error', 'OpenAI服务器错误，请稍后重试'),
+        }
+        
+        try:
+            # 尝试解析 JSON 错误
+            if isinstance(error_str, str) and error_str.strip().startswith('{'):
+                error_data = json.loads(error_str)
+                if 'error' in error_data:
+                    code = error_data['error'].get('code', '')
+                    message = error_data['error'].get('message', '')
+                    
+                    # 查找映射
+                    if code in error_map:
+                        return error_map[code]
+                    
+                    # 根据消息内容判断
+                    msg_lower = message.lower()
+                    if 'token' in msg_lower and ('invalid' in msg_lower or 'expired' in msg_lower):
+                        return ('token_expired', 'Token已过期，请更新Session Token')
+                    if 'banned' in msg_lower or 'suspended' in msg_lower or 'deactivated' in msg_lower:
+                        return ('banned', '账号已被封禁')
+                    
+                    # 返回原始消息
+                    return ('error', message)
+        except:
+            pass
+        
+        # 无法解析，返回原始错误
+        return ('error', str(error_str)[:200] if error_str else '未知错误')
+
     def _fetch(self, url, headers, method='GET', data=None):
         """发起 HTTP 请求"""
         req = urllib.request.Request(url, headers=headers, method=method)
@@ -253,10 +293,14 @@ class handler(BaseHTTPRequestHandler):
                 'active_until': data.get('active_until'),
             }
         elif sub_result.get('status') in [401, 403]:
-            return {'success': False, 'banned': True, 'error': sub_result.get('error', f'HTTP {sub_result.get("status")}')}
+            # 解析错误并映射
+            error_type, error_msg = self._parse_openai_error(sub_result.get('error'))
+            is_banned = error_type == 'banned'
+            return {'success': False, 'banned': is_banned, 'error': error_msg, 'error_type': error_type}
         else:
-            # 返回真实的 OpenAI 错误信息
-            return {'success': False, 'error': sub_result.get('error', f'Subscription API failed: HTTP {sub_result.get("status")}')}
+            # 解析错误并映射
+            error_type, error_msg = self._parse_openai_error(sub_result.get('error'))
+            return {'success': False, 'error': error_msg, 'error_type': error_type}
 
         # 成员列表
         if mem_result.get('status') == 200:
