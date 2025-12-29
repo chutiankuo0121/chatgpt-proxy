@@ -211,7 +211,7 @@ class handler(BaseHTTPRequestHandler):
         # 1. 获取 accessToken
         token_result = self._get_access_token(session_token)
         if not token_result.get('success'):
-            return {'success': False, 'error': 'Failed to get accessToken', 'banned': True}
+            return {'success': False, 'error': token_result.get('error', 'Failed to get accessToken'), 'banned': True}
 
         access_token = token_result['accessToken']
         headers = self._build_headers(access_token, account_id)
@@ -253,20 +253,23 @@ class handler(BaseHTTPRequestHandler):
                 'active_until': data.get('active_until'),
             }
         elif sub_result.get('status') in [401, 403]:
-            return {'success': False, 'banned': True}
+            return {'success': False, 'banned': True, 'error': sub_result.get('error', f'HTTP {sub_result.get("status")}')}
         else:
-            response['subscription'] = None
+            # 返回真实的 OpenAI 错误信息
+            return {'success': False, 'error': sub_result.get('error', f'Subscription API failed: HTTP {sub_result.get("status")}')}
 
         # 成员列表
         if mem_result.get('status') == 200:
             response['members'] = mem_result['data'].get('items', [])
         else:
             response['members'] = []
+            response['members_error'] = mem_result.get('error')
 
         # 待处理邀请
         if inv_result.get('status') == 200:
             response['invites'] = inv_result['data'].get('items', [])
         else:
             response['invites'] = []
+            response['invites_error'] = inv_result.get('error')
 
         return response
