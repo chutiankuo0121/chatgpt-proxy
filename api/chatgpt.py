@@ -86,7 +86,7 @@ class handler(BaseHTTPRequestHandler):
             return {'status': 0, 'error': str(e)}
 
     def _get_access_token(self, session_token):
-        """用 session-token 换取 accessToken"""
+        """用 session-token 换取 accessToken（带重试）"""
         if not session_token:
             return {'success': False, 'error': 'Missing session_token'}
 
@@ -96,12 +96,21 @@ class handler(BaseHTTPRequestHandler):
             'Cookie': f'__Secure-next-auth.session-token={session_token}'
         }
 
-        result = self._fetch('https://chatgpt.com/api/auth/session', headers)
+        # 重试3次
+        last_error = None
+        for attempt in range(3):
+            result = self._fetch('https://chatgpt.com/api/auth/session', headers)
+            
+            if result.get('status') == 200 and result.get('data', {}).get('accessToken'):
+                return {'success': True, 'accessToken': result['data']['accessToken']}
+            
+            last_error = result.get('error', 'Failed')
+            # 等待后重试
+            if attempt < 2:
+                import time
+                time.sleep(0.5)
         
-        if result.get('status') == 200 and result.get('data', {}).get('accessToken'):
-            return {'success': True, 'accessToken': result['data']['accessToken']}
-        
-        return {'success': False, 'error': result.get('error', 'Failed'), 'status': result.get('status')}
+        return {'success': False, 'error': last_error, 'status': result.get('status')}
 
     def _build_headers(self, access_token, account_id):
         return {
